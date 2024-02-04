@@ -1,0 +1,390 @@
+---
+title: "**HW06 | Text Mining | MUSA5000**"
+output:
+  html_document:
+    keep_md: yes
+    toc: yes
+    theme: flatly
+    toc_float: yes
+    code_folding: hide
+    number_sections: no
+    css: style.css
+---
+
+<br>
+
+**Contributors: Nohman Akhtari, Alec Jacobs, Trevor Kapuvari, Anna Duan, Jingyi Li, Jamie Song**
+
+Course: Statistical And Data Mining Methods For Urban Spatial Analytics | 12.20.2023
+
+<br>
+
+
+```{r clear_environment, cache = TRUE, include = FALSE}
+
+# Lists All Of The Objects In The Work Space
+
+rm(list=ls())
+
+```
+
+```{r knitting_options, include = FALSE}
+
+# Global Options For Knitting Chunks
+
+knitr::opts_chunk$set(echo = T, cache = T, messages = F, warning = F, error = F)
+
+```
+
+```{r warning=FALSE, message=FALSE, cache=FALSE, include = FALSE}
+
+# Loading In Project Specific Library Packages
+
+options(scipen=999)
+                 
+library(wordcloud)
+library(text)
+library(tm)
+library(SnowballC)
+library(words)
+library(NbClust)
+library(stringr)
+library(dplyr)
+library(syuzhet)
+library(devtools)
+library(tm)
+library(docxtractr)
+library(stringr)
+library(qdapTools)
+library(data.table)
+library(chatgpt)
+library(httr)
+library(textstem)
+library(tigris)
+library(tidyverse)
+library(sf)
+library(mapview)
+library(httr)
+library(viridis)
+library(openai)
+library(sf)
+devtools::install_github("kstagaman/autoNumCaptions")
+
+```
+
+# **INTRODUCTION**
+
+<br>
+
+Philadelphia is home to a wide variety of parks, each having its own unique charm that influences environments across the city. We understand not all parks are treated or created equally, which is often reflected by people’s first-hand experiences in these parks. Our objective is to assess variations in people's differing viewpoints regarding specific parks and compile a comprehensive perspective on the parks and recreational facilities in Philadelphia. Examining emotion and gauging sentiment concerning community amenities enables additional research along with surveying efforts focused on publicly reviewed entities. Ultimately, this analysis can be expanded to visualize public opinion on any open-source review site. 
+
+<br>
+
+# **METHODS**
+
+<br>
+
+For our report, we acquire park reviews from Philadelphia using the Yelp API, providing us a corpus of sample text from which to gather opinions and emotions. Using the collection of park reviews, we utilize a dictionary/sentiment analysis tool in R called Syuzhet, which reads and calculates the emotions derived from the words used in each review. In order to optimize the algorithm’s ability to read emotions, we have to trim the words in the samples to only include words that are substantial in meaning. This process includes acquiring a dictionary database of all real words in the English language and cross-checking said database with the reviews. This process allows us to take two approaches in the filtering process. 
+
+The first is stemming, where we take the root word (stem) of various tenses of said word and classify it as one, filtering out suffixes. Alternatively, we can use lemmatization, which groups inflected words as its base meaning to achieve similar results. From there, we filter out “stop words” that do not add value to the sentences nor have underlying emotion; examples include “the”, “is”, and ”are”. After these filters are applied, we have strings of words with emotional definitions that can be read by the program. The Syzhuet analysis employs multiple sentiment lexicons, each lexicon is a set vocabulary that has a specific value associated with each word. The different sentiment lexicons generally have one or two approaches. The first approach is categorizing them into one of several core emotions - anger, disgust, fear, joy, etc. The other method is using a binary approach where each word is simply positive or negative. Our next step was to visualize the most frequent words and the sentiment based on the categorization, presenting the results.  
+
+As a secondary analysis, we used ChatGPT to summarize our reviews, learn the points driven by the review, and for any negative reviews, provide feedback on how the park can be improved upon. This piece leveraged ChatGPT APIs that would essentially automate ChatGPT for multiple reviews and record each response to our question in a database. To achieve this, we deployed a for loop that would state our question: "Please read the following reviews of a park. What was the reviewer's main point, and can you suggest a way to improve the park based on the review?" A park review would follow after presenting the question. The responses were then compiled into a dataset for comparison to the actual review provided.
+
+<br>
+
+```{r combined_analysis, include = TRUE, fig.keep = "none", eval = FALSE}
+
+#Chunk 01
+
+url <- read_sf("C:/Users/alecj/Desktop/HW06_Statistics_MUSA5000/park_reviews.geojson")
+
+urltext = url$yelp.json.reviews.text
+
+yelptext = c("https://github.com/annaduan09/Stat-Assignment-6/raw/master/yelptext.txt")
+
+
+#Chunk 02
+
+myCorpus <- tm::VCorpus(VectorSource(sapply(yelptext, readLines)))
+
+myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+
+
+#Chunk 03
+
+toSpace <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+
+remApostrophe <- content_transformer(function(x,pattern) gsub(pattern, "", x))
+
+myCorpus <- tm_map(myCorpus, toSpace, "@")
+myCorpus <- tm_map(myCorpus, toSpace, "/")
+myCorpus <- tm_map(myCorpus, toSpace, "]")
+myCorpus <- tm_map(myCorpus, toSpace, "$")
+myCorpus <- tm_map(myCorpus, toSpace, "—")
+myCorpus <- tm_map(myCorpus, toSpace, "‐")
+myCorpus <- tm_map(myCorpus, toSpace, "”")
+myCorpus <- tm_map(myCorpus, toSpace, "‘")
+myCorpus <- tm_map(myCorpus, toSpace, "“")
+myCorpus <- tm_map(myCorpus, toSpace, "‘")
+myCorpus <- tm_map(myCorpus, remApostrophe, "’")
+stopwords("english")
+myCorpus <- tm_map(myCorpus, removeWords, stopwords("english"))
+myCorpus <- tm_map(myCorpus, stemDocument)
+tdm <- TermDocumentMatrix(myCorpus)
+
+#Chunk 04
+
+myCorpus <- tm::tm_map(myCorpus, removeNumbers)
+
+myCorpus <- tm_map(myCorpus, removePunctuation)
+
+tdm <- TermDocumentMatrix(myCorpus)
+
+tm::inspect(tdm)
+
+m<- as.matrix(tdm)
+
+dim(m)
+
+# Chunk 05
+
+rownames(m) <- tdm$dimnames$Terms
+
+head(m)
+
+#Chunk06
+
+dictionary <- as.character(words::words$word)
+row_names <- rownames(m)
+in_dictionary <- row_names %in% dictionary
+remove <- as.character(row_names[!in_dictionary])
+
+num_observations <- as.numeric(length(remove))  
+chunk_size <- 1000
+
+for (i in seq(1, num_observations, chunk_size)) {
+  start <- i
+  end <- i + chunk_size - 1
+  end <- ifelse(end > num_observations, num_observations, end)
+  myCorpus <- tm_map(myCorpus, removeWords, remove[start:end])  
+}
+
+# Chunk 07
+
+dtm_cleaned <- DocumentTermMatrix(myCorpus)
+
+tm::inspect(dtm_cleaned)
+
+# Chunk 08
+
+m <- as.matrix(dtm_cleaned)
+
+dim(m)
+
+colnames(m) <- dtm_cleaned$dimnames$Terms
+
+# Chunk 09
+
+cs <- as.matrix(colSums(m))
+
+rownames(cs) <- dtm_cleaned$dimnames$Terms
+
+hist(cs, breaks=100)
+
+# Chunk 10
+
+cs <- as.matrix(colSums(m))
+
+rownames(cs) <- dtm_cleaned$dimnames$Terms
+
+hist(cs, breaks=100)
+
+# Chunk 11
+
+nrc <- syuzhet::get_sentiment_dictionary(dictionary="nrc")
+afinn <- syuzhet::get_sentiment_dictionary(dictionary="afinn")
+bing <- syuzhet::get_sentiment_dictionary(dictionary="bing")
+syuzhet <- syuzhet::get_sentiment_dictionary(dictionary="syuzhet")
+get_nrc_sentiment("flaccid")
+
+# Chunk 12
+
+Parks <- data.frame(Term = colnames(m), stringsAsFactors = FALSE)
+Parks$Term_Frequency <- colSums(m)
+
+nrc_sentiment <- get_nrc_sentiment(Parks$Term)
+
+Parks_Sentiment <- cbind(Parks, nrc_sentiment)
+cols_to_multiply <- names(Parks_Sentiment)[3:12]
+
+Parks_Sentiment[, cols_to_multiply] <- Parks_Sentiment[, cols_to_multiply] * Parks_Sentiment$Term_Frequency
+
+Parks_Sentiment_Total <- t(as.matrix(colSums(Parks_Sentiment[,-1:-2])))
+barplot(Parks_Sentiment_Total, las=2, ylab='Count', main='Sentiment Scores')
+
+# Chunk 13
+
+#SYUZHET
+Parks$Syuzhet <- as.matrix(get_sentiment(Parks$Term, method="syuzhet"))
+hist(Parks$Syuzhet)
+
+#BING
+Parks$Bing <- as.matrix(get_sentiment(Parks$Term, method="bing"))
+hist(Parks$Bing)
+
+#AFINN
+Parks$AFINN <- as.matrix(get_sentiment(Parks$Term, method="afinn"))
+hist(Parks$AFINN)
+
+#NRC
+Parks$NRC <- as.matrix(get_sentiment(Parks$Term, method="nrc"))
+hist(Parks$NRC)
+
+# Chunk 14
+
+sentiment_columns <- Parks[ , 3:6]
+sentiment_columns <- data.frame(lapply(sentiment_columns, sign))
+sentiment_columns <- data.frame(lapply(sentiment_columns, as.factor))
+
+#RAW FREQUENCIES
+sapply(sentiment_columns, function(x) if("factor" %in% class(x)) {table(x)})
+
+#PROPORTIONS
+sapply(sentiment_columns, function(x) if("factor" %in% class(x)) {prop.table(table(x))})
+
+# Chunk 15
+
+tab <- as.matrix(table(cs))
+
+wordcloud(myCorpus, min.freq=1000)
+
+
+```
+
+```{r gpt_setup, include = TRUE, fig.keep = "none", eval = FALSE}
+
+
+my_API <- "INSERT YOUR KEY HERE"
+
+# Working Version 01
+
+hey_chatGPT <- function(answer_my_question) {
+  chat_GPT_answer <- POST(
+    url = "https://api.openai.com/v1/chat/completions",
+    add_headers(Authorization = paste("Bearer", my_API)),
+    content_type_json(),
+    encode = "json",
+    body = list(
+      model = "gpt-3.5-turbo-0301",
+      messages = list(
+        list(
+          role = "user",
+          content = answer_my_question
+        )
+      )
+    )
+  )
+  paste(str_trim(httr::content(chat_GPT_answer)$choices[[1]]$message$content), "TOKENS USED: ", httr::content(chat_GPT_answer)$usage$total_tokens)
+}
+
+urltext.df <- as.data.frame(urltext)
+
+urltext.sample <- data.frame(urltext = urltext.df[sample(nrow(urltext.df), size=10), ])
+
+urltext.sample$summary <- NULL
+for (x in 1:nrow(urltext.sample)) {
+  urltext.sample$summary[[x]] <- paste(hey_chatGPT(paste("Please read the following reviews of parks. For each review, what was the reviewer's main point, and can you suggest a way to improve the park based on the review?", urltext.sample$urltext[[x]])))
+}
+
+# Working Version 02
+
+hey_chatGPT <- function(answer_my_question) {
+  chat_GPT_answer <- POST(
+    url = "https://api.openai.com/v1/chat/completions",
+    add_headers(Authorization = paste("Bearer", my_API)),
+    content_type_json(),
+    encode = "json",
+    body = list(
+      model = "gpt-3.5-turbo-0301",
+      messages = list(
+        list(
+          role = "system",
+          content = "You are a helpful assistant."
+        ),
+        list(
+          role = "user",
+          content = answer_my_question
+        )
+      )
+    )
+  )
+  response <- httr::content(chat_GPT_answer)
+  paste(response$choices[[1]]$message$content, "TOKENS USED: ", response$usage$total_tokens)
+}
+
+urltext.sample$summary <- sapply(urltext.sample$urltext, function(text) {
+  hey_chatGPT(paste("Please read the following reviews of parks. For each review, what was the reviewer's main point, and can you suggest a way to improve the park based on the review?", text))
+}, USE.NAMES = FALSE)
+
+```
+
+<br>
+
+# **RESULTS**
+
+<br>
+
+Our results provide plenty of insight on the quantity and quality of the text. The histogram of  “cs” refers to the frequency of words and their mentions throughout all the reviews. The right skew shown in Figure 01 tells us that the majority of words (cs) were used one to a few times. Meanwhile, there are some words that had 1,500 mentions.
+
+In order to visualize which particular words were mentioned most and least, we used a word cloud to represent the collective reviews. The word cloud takes the frequency of every word and that frequency determines the size of the word in the cloud. Words mentioned more will be larger and words mentioned less will be smaller. Because of the inherently large variety implied with a visualization, such as with words, we limited the cloud to only those mentioned at least 1,000 times. The results are shown in Figure 02. In this word cloud, we see a few words stand out compared to the rest, specifically “great”, “dog”, and “nice”. These are useful in reading a general sentiment of how people feel about parks in Philadelphia. 
+
+Improvements could be made to the analysis by removing words that could be common to the amenity theme and are not necessarily about opinion, such as “dog”, “see”, or “use”. Regardless, we can now evaluate the general opinion on Philadelphia’s parks using the various lexicon sentiment analysis presented in Figure 03. We see clearly defined categorizations of specific emotions and a generalized version of positive vs negative sentiment. Overall, the sentiment of the parks were positive, scoring almost four times higher than negative sentiment. What is particularly interesting is the three-way tie between trust, joy, and anticipation. All three of these emotions scored roughly the same and contribute to the positive feedback summarized in the park reviews. The combination of the specific emotions and positive scores show a sense of approval and satisfactory outlook on Philadelphia’s parks. 
+
+Our results from the ChatGPT analysis are limited, perhaps owing to the structure of the data obtained from Yelp. However, a sample of results are shown in Figure 04. ChatGPT was able to read each review and summarize its main point as well as derive suggestions for improvement, such as tree-planting or increased maintenance.
+
+<br>
+ 
+### Figure 01. Word Frequency Distribution
+
+<br>
+ 
+![](Word Frequency Distribution.jpg)
+
+<br>
+
+### Figure 02. Word Cloud
+
+<br>
+
+![](Word Cloud.jpg)
+
+<br>
+
+### Figure 03. Distribution Of Sentiments
+
+<br>
+
+![](Sentiment Scores.jpg)
+
+<br>
+
+
+### Figure 04. Sample ChatGPT Results
+
+<br>
+
+![](Sample ChatGPT Results.jpg){width=825px}
+
+<br>
+
+# **DISCUSSION**
+
+<br>
+
+These findings are interesting because of the sampling bias that often comes with publicly sourced reviews. The majority of people that leave reviews are typically rooted from an emotional state that is extreme, either positive or negative. Often, this can lead to reviews either having heavily favorable or unfavorable sentiment about something. This bias goes beyond parks and extreme opinion because of the incentive regarding a review. The potential problem with the sample bias arises from the tendency to view a “good” or satisfactory experience as the expectation. Yet, simply meeting expectations alone may not provoke enough emotion to compel someone to write a review about it. Meanwhile, there is greater emotional reaction to loss or negative experience than a positive or gain of equal value.^[Bosone, L. and Martinez, F., 2017. When, How and Why is Loss-Framing More Effective than Gain- and Non-Gain-Framing in the Promotion of Detection Behaviors?. International Review of Social Psychology, 30(1), p.184-192.DOI: https://doi.org/10.5334/irsp.15]
+
+In terms of our review data, our sources were susceptible to a negativity bias. Despite the potential, the overall positive sentiment in our results is what is particularly interesting, showing that the positive experiences had equal or greater value than the negative experiences in these parks. Parks, like many community features, have variations in numerous aspects. Using the same methods, we could compare our data to other community amenities and could identify if they have the same review sentiment as parks. Our data is from Yelp, a source with evident negativity bias throughout its reviews.^[Roh, M., & Yang, S. (2021). Exploring extremity and negativity biases in online reviews: Evidence from yelp.com. Social Behavior and Personality, 49(11), 1-15. doi:https://doi.org/10.2224/sbp.10825] Further research can evaluate amenities in Philadelphia to see if others have been favorably reviewed by the public through word-choice rather than merely numeric ratings. The purpose of extracting insights from word sentiment is to identify specific areas for potential improvement, seeing which words are used most rather than only looking at the general opinion. 
+
+Because the results we obtained from ChatGPT were limited by the structure of the dataset, further work should include refinement of R code to better clean the dataset for this implementation. We also acknowledge that the ChatGPT prompt we formulated for this dataset may be most useful for analyzing reviews with negative sentiment scores to investigate how best to improve the city’s parks and recreation. Future directions could include analyzing positive reviews to explore the public health benefits of green space and build an evidence base for increasing funding and resources to city parks.
+
+<br>
